@@ -215,7 +215,7 @@ export class PermissionPresetService extends Service {
       // The source thunk reads the latest scope snapshot at session creation;
       // no process-level registration needs replacement on change.
       onChange: () => {},
-    })
+    }, true)
 
     ctx.on('session/created', (session) => {
       this.pinInitialPermission(session)

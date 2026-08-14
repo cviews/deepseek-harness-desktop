@@ -27,6 +27,14 @@ interface SettingsRegisterOptions<T> {
   /** Owner's effect timing, surfaced to configuration UIs; defaults to `live`. */
   applies?: SettingsApplies
   /**
+   * Opt this namespace in to configuration-client exposure. A wire surface
+   * (the Web configuration plane) serves the namespace only when this is
+   * `true`; defaults to `false`, so registration alone keeps a namespace
+   * invisible to remote clients and the owner must declare its section safe
+   * to surface. The owner's own reads and writes are never gated by this.
+   */
+  expose?: boolean
+  /**
    * Reject a resolved section the owner could not act on, for constraints its
    * schema cannot express — a cross-field requirement, or one field's validity
    * depending on another's. Throwing here refuses the *write* that produced the
@@ -52,6 +60,8 @@ interface SettingsRegisterOptions<T> {
 `validate` runs after the schema admits a value, so it sees defaults and the composition base exactly as the owner will. `dsh-llm-pi-ai` uses it to refuse a provider profile it could not serve at the write that produced it, rather than storing one that would disable every route in its namespace.
 
 `applies` is a UI hint, not a mechanism: a `restart` owner simply never watches, so its value is read once at construction and configuration surfaces can badge the pending change.
+
+`expose` is the configuration-client exposure declaration: it defaults to `false`, so a namespace stays invisible to wire surfaces (the Web configuration plane) until its owner opts in. The owner's own reads and writes are never gated by it.
 
 ```ts type-equiv
 /** When a namespace's changes take effect for its owner. */
@@ -120,6 +130,8 @@ interface SettingsDescriptor {
   user?: unknown
   /** Owner's declared effect timing. */
   applies: SettingsApplies
+  /** Whether the owner opted this namespace in to configuration-client exposure. */
+  exposed: boolean
   /** Schema-declared secret positions; present only under `redactSecrets`. */
   secrets?: RedactedSecret[]
 }

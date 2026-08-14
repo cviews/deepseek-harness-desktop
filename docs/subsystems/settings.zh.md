@@ -27,6 +27,14 @@ interface SettingsRegisterOptions<T> {
   /** Owner's effect timing, surfaced to configuration UIs; defaults to `live`. */
   applies?: SettingsApplies
   /**
+   * Opt this namespace in to configuration-client exposure. A wire surface
+   * (the Web configuration plane) serves the namespace only when this is
+   * `true`; defaults to `false`, so registration alone keeps a namespace
+   * invisible to remote clients and the owner must declare its section safe
+   * to surface. The owner's own reads and writes are never gated by this.
+   */
+  expose?: boolean
+  /**
    * Reject a resolved section the owner could not act on, for constraints its
    * schema cannot express — a cross-field requirement, or one field's validity
    * depending on another's. Throwing here refuses the *write* that produced the
@@ -52,6 +60,8 @@ interface SettingsRegisterOptions<T> {
 `validate` 在 schema 接纳该值之后运行，因此它看到的默认值和组合 base 与 owner 实际看到的完全一致。`dsh-llm-pi-ai` 用它在写入处拒绝自己无法服务的提供方 profile，而不是先存下来、再让该 namespace 下每条路由失效。
 
 `applies` 是 UI 提示而非机制：`restart` 的 owner 只是从不 watch，其值在构造期读取一次，配置界面可为待生效变更加标。
+
+`expose` 是配置客户端暴露声明：它缺省为 `false`，因此命名空间在 owner 选择暴露之前对 wire 接口（Web 配置面）不可见。owner 自身的读取与写入永不受它限制。
 
 ```ts type-equiv
 /** When a namespace's changes take effect for its owner. */
@@ -120,6 +130,8 @@ interface SettingsDescriptor {
   user?: unknown
   /** Owner's declared effect timing. */
   applies: SettingsApplies
+  /** Whether the owner opted this namespace in to configuration-client exposure. */
+  exposed: boolean
   /** Schema-declared secret positions; present only under `redactSecrets`. */
   secrets?: RedactedSecret[]
 }

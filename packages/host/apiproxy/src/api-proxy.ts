@@ -31,7 +31,7 @@ import {
 import {
   InvalidPresetIdError, PresetExistsError, PresetMountError,
   PresetNotWritableError, resolveSessionPreset,
-  SETTINGS_NAMESPACE as AGENT_PRESET_SETTINGS_NAMESPACE, UnknownPresetError,
+  UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
 import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -112,20 +112,6 @@ import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
-
-/**
- * Non-model settings namespaces intentionally served to the Web client. The
- * plugin-owned entries (`agent-loop`, `bash`, `web-search-deepseek`) are the
- * host-plane sections the plugin configuration page edits; a namespace absent
- * here answers `settings-not-exposed` even when its owner registered it, so
- * adding a section to that page is a decision made here rather than by the
- * registering plugin. Moving that declaration to `settings.register()`, so a
- * plugin can expose its own configuration without a change in this package,
- * is deferred work.
- */
-const WEB_SETTINGS_NAMESPACES = [
-  'agent-loop', 'shell', 'locale', 'permission', 'ui-conversation', 'ui-theme', 'web-search-deepseek',
-] as const
 
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
 const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
@@ -244,16 +230,6 @@ function referencedImage(events: readonly SessionEvent[], attachmentId: string):
   }
   return undefined
 }
-
-/**
- * Product settings intentionally exposed beside model-provider namespaces.
- *
- * The agent-preset namespace carries one field — which preset a session with
- * no explicit choice is composed from — and both browser surfaces that offer
- * that choice write it through `settings.update`, so it has to cross the
- * configuration boundary or the pickers silently fail to persist.
- */
-const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding', AGENT_PRESET_SETTINGS_NAMESPACE])
 
 /** Strict browser-zone profile: UTC or an IANA Area/Location-style identifier. */
 const IANA_TIME_ZONE = /^[A-Za-z][A-Za-z0-9_+.-]*(?:\/[A-Za-z0-9_+.-]+)+$/
@@ -1939,25 +1915,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
-  /** Settings namespaces whose changes can invalidate the model catalog. */
-  function modelProviderNamespaces(): Set<string> {
-    return new Set(ctx.llm.listConfigurableProviders().map(entry => entry.settingsNs))
-  }
-
   /**
-   * The settings namespaces this proxy serves: configurable model providers
-   * plus the small explicit Web preference and product-owned allowlists. The
-   * settings seam remains general; a future registration does not become
-   * remotely readable or writable by default.
+   * The settings namespaces this proxy serves: exactly those whose owner opted
+   * in at `settings.register` with `expose: true`. Registration alone keeps a
+   * namespace invisible to configuration clients, so the exposure decision
+   * lives with the plugin that owns the section rather than a central
+   * allowlist — and an unexposed namespace is indistinguishable from one that
+   * was never registered.
    */
   function exposedNamespaces(): Set<string> {
-    const exposed = modelProviderNamespaces()
-    for (const ns of WEB_SETTINGS_NAMESPACES) exposed.add(ns)
-    for (const ns of PRODUCT_SETTINGS_NAMESPACES) exposed.add(ns)
+    const exposed = new Set<string>()
+    const settings = ctx.get('settings')
+    if (settings !== undefined) {
+      for (const descriptor of settings.describe({ redactSecrets: true })) {
+        if (descriptor.exposed) exposed.add(String(descriptor.ns))
+      }
+    }
     return exposed
   }
 
-  /** Refuse a namespace outside the explicit configuration-client boundary. */
+  /** Refuse a namespace the settings owner did not opt in to configuration-client exposure. */
   function notExposed(request: RpcRequest<unknown>, ns: string): RpcResponse<SettingsNamespaceView> {
     return err(request, {
       code: 'settings-not-exposed',

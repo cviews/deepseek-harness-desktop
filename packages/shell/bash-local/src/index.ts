@@ -133,7 +133,7 @@ export class LocalBashExecutor extends ShellExecutor {
       // Every field is read through the getter at each command, so nothing
       // derived from the source needs rebuilding when the document changes.
       onChange: () => {},
-    })
+    }, true)
   }
 
   /**

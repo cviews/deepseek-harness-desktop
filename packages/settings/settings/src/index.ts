@@ -40,6 +40,14 @@ export interface SettingsRegisterOptions<T> {
   /** Owner's effect timing, surfaced to configuration UIs; defaults to `live`. */
   applies?: SettingsApplies
   /**
+   * Opt this namespace in to configuration-client exposure. A wire surface
+   * (the Web configuration plane) serves the namespace only when this is
+   * `true`; defaults to `false`, so registration alone keeps a namespace
+   * invisible to remote clients and the owner must declare its section safe
+   * to surface. The owner's own reads and writes are never gated by this.
+   */
+  expose?: boolean
+  /**
    * Reject a resolved section the owner could not act on, for constraints its
    * schema cannot express — a cross-field requirement, or one field's validity
    * depending on another's. Throwing here refuses the *write* that produced the
@@ -85,6 +93,8 @@ export interface SettingsDescriptor {
   user?: unknown
   /** Owner's declared effect timing. */
   applies: SettingsApplies
+  /** Whether the owner opted this namespace in to configuration-client exposure. */
+  exposed: boolean
   /** Schema-declared secret positions; present only under `redactSecrets`. */
   secrets?: RedactedSecret[]
 }
@@ -326,6 +336,8 @@ interface SettingsRegistration {
   schema: z<unknown>
   base: unknown
   applies: SettingsApplies
+  /** Owner's opt-in to configuration-client exposure. */
+  exposed: boolean
   /** Owner-supplied check for constraints the schema cannot express. */
   validate?: (value: unknown) => void
   resolved: unknown
@@ -441,6 +453,7 @@ export abstract class SettingsProvider extends Service {
       schema: schema as z<unknown>,
       base: options?.base,
       applies: options?.applies ?? 'live',
+      exposed: options?.expose ?? false,
       ...options?.validate === undefined
         ? {}
         : { validate: options.validate as (value: unknown) => void },
@@ -497,6 +510,7 @@ export abstract class SettingsProvider extends Service {
         ...base === undefined ? {} : { base },
         ...detachedUser === undefined ? {} : { user: detachedUser },
         applies: registration.applies,
+        exposed: registration.exposed,
       }
       if (options?.redactSecrets !== true) return descriptor
       const schema = registration.schema as z<never>
@@ -859,6 +873,8 @@ export interface SettingsSectionHooks<T> {
  * @param schema - schema resolving the namespace (typically the plugin Config).
  * @param entry - the consumer's composition entry config, used as `base`.
  * @param hooks - source sink and change notification.
+ * @param expose - opt the namespace in to configuration-client exposure; see
+ *   {@link SettingsRegisterOptions.expose}. Defaults to `false`.
  */
 export function installSettingsSection<T>(
   ctx: Context,
@@ -866,10 +882,12 @@ export function installSettingsSection<T>(
   schema: z<T>,
   entry: T,
   hooks: SettingsSectionHooks<T>,
+  expose: boolean = false,
 ): void {
   ctx.inject(['settings'], (sctx) => {
     const scope = sctx.settings.register(ns, schema, {
       base: entry,
+      expose,
       ...hooks.validate === undefined ? {} : { validate: hooks.validate },
     })
     hooks.setSource(() => scope.get())

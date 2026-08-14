@@ -3963,7 +3963,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SettingsDescriptor',
-    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    schema: unknown;\n    value: unknown;\n    revision: number;\n    base?: unknown;\n    user?: unknown;\n    applies: SettingsApplies;\n    secrets?: RedactedSecret[];\n}',
+    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    schema: unknown;\n    value: unknown;\n    revision: number;\n    base?: unknown;\n    user?: unknown;\n    applies: SettingsApplies;\n    exposed: boolean;\n    secrets?: RedactedSecret[];\n}',
   },
   {
     name: 'SettingsNamespace',
@@ -3975,7 +3975,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SettingsRegisterOptions',
-    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n    validate?: (value: T) => void;\n}',
+    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n    expose?: boolean;\n    validate?: (value: T) => void;\n}',
   },
   {
     name: 'SettingsUpdateSource',

@@ -112,16 +112,23 @@ describe('hand-declared providers', () => {
     })
   })
 
-  it('offers no reasoning control it could not honour', async () => {
+  it('defaults a hand-declared OpenAI model to the standard effort levels', async () => {
     const server = await mockServer([])
     const ctx = await harness(gateway(`${server.url}/v1`))
 
-    // pi-ai reports a model with no reasoning metadata as supporting the single
-    // level `off`, but `off` is translated to *omitting* the reasoning option —
-    // byte-for-byte the same request as naming no effort — so a provider whose
-    // own default is to think would keep thinking with `off` selected. The
-    // capability is reported unavailable instead of offering that control.
-    expect((await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')).reasoning).toBeUndefined()
+    // A hand-declared OpenAI-compatible model carries no catalog reasoning
+    // metadata, so the harness defaults it to the standard low/medium/high
+    // `reasoning_effort` spellings. `off` is deliberately absent: pi-ai would
+    // translate it to *omitting* the reasoning option — byte-for-byte the same
+    // request as naming no effort — so a provider whose own default is to think
+    // would keep thinking with `off` selected.
+    const info = await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')
+    expect(info.reasoning?.efforts.map(e => e.id)).toEqual(['low', 'medium', 'high'])
+
+    // The default only applies where `reasoning_effort` dispatch exists; a
+    // hand-declared model on a non-OpenAI protocol still offers no reasoning.
+    const anthropic = await harness(gateway(`${server.url}/v1`, { api: 'anthropic-messages' }))
+    expect((await anthropic.llm.resolveModelInfo('acme-gateway', 'acme-large')).reasoning).toBeUndefined()
 
     // A catalog route is unaffected: its models carry the metadata that makes
     // `off` actually disable thinking.

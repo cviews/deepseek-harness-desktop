@@ -183,8 +183,8 @@ async function harness(options?: {
   await ctx.plugin(LlmRuntime)
   if (options?.settings !== false) await ctx.plugin(MemorySettings, options?.settings)
   if (options?.credentials !== false) await ctx.plugin(MemoryCredentials, options?.credentials)
-  // Model-provider namespaces plus the explicit Web preference and product
-  // onboarding allowlists are the proxy's complete settings surface.
+  // The directory entry names the settings namespace an adapter edits; the
+  // proxy exposes every namespace registered with the settings seam.
   if (options?.configurableProviders !== false) {
     ctx.llm.registerConfigurableProviders([
       { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
@@ -248,7 +248,7 @@ describe('settings domain', () => {
       doc: { 'llm-deepseek': { apiKey: 'user-secret', baseURL: 'https://user' } },
       documentPath: '/tmp/custom-settings.yaml',
     } })
-    ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
+    ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' }, expose: true })
     const api = createApiProxy(ctx, DEFAULTS)
     const value = expectOk(await api.settings.describe(request({})))
     expect(value.writable).toBe(true)
@@ -321,38 +321,38 @@ describe('settings domain', () => {
     expect(opened).toEqual([])
   })
 
-  it('serves model-provider and explicitly allowlisted Web namespaces only', async () => {
-    // The settings seam is general: any plugin may register a namespace for
-    // its own configuration. The Web configuration plane remains opt-in, so a
-    // future internal plugin cannot become remotely configurable just by
-    // registering; locale, permission, conversation, theme, and the product
-    // onboarding namespace are intentionally admitted by this surface.
+  it('serves only the settings namespaces registered with expose', async () => {
+    // Exposure is a per-namespace opt-in at `settings.register`: a plugin
+    // declares its section safe to surface with `expose: true`, and a
+    // registration that omits it stays invisible to the configuration client —
+    // indistinguishable from one that was never registered.
     const ctx = await harness()
-    ctx.settings.register(NS, AdapterConfig)
+    ctx.settings.register(NS, AdapterConfig, { expose: true })
     ctx.settings.register(settingsNamespace('some-other-plugin'), z.object({ secretPath: z.string() }))
     ctx.settings.register(settingsNamespace('permission'), z.object({
       defaultPreset: z.union(['read-only', 'workspace-write']).required(),
     }), {
       base: { defaultPreset: 'read-only' },
+      expose: true,
     })
     ctx.settings.register(settingsNamespace('ui-theme'), z.object({
       preference: z.union(['light', 'dark', 'system']).default('system'),
-    }))
+    }), { expose: true })
     ctx.settings.register(settingsNamespace('locale'), z.object({
       preference: z.union(['zh', 'en']).required(false),
-    }))
+    }), { expose: true })
     ctx.settings.register(settingsNamespace('ui-conversation'), z.object({
       busyEnter: z.union(['queue', 'steer']).default('queue'),
-    }))
+    }), { expose: true })
     ctx.settings.register(settingsNamespace('shell'), z.object({
       timeoutMs: z.number().default(120_000),
-    }))
+    }), { expose: true })
     ctx.settings.register(settingsNamespace('agent-loop'), z.object({
       maxParallelToolCalls: z.number().default(10),
-    }))
+    }), { expose: true })
     ctx.settings.register(settingsNamespace('web-search-deepseek'), z.object({
       baseURL: z.string(),
-    }))
+    }), { expose: true })
     const api = createApiProxy(ctx, DEFAULTS)
 
     const value = expectOk(await api.settings.describe(request({})))
@@ -396,24 +396,19 @@ describe('settings domain', () => {
     })))
     expect(webSearch.value).toEqual({ baseURL: 'https://search.test/v1' })
 
-    for (const response of [
-      await api.settings.update(request({ ns: 'some-other-plugin', patch: { secretPath: '/etc/shadow' } })),
-      await api.settings.replace(request({ ns: 'some-other-plugin', section: {} })),
-    ]) {
-      const error = expectErr(response)
-      expect(error.code).toBe('settings-not-exposed')
-      expect(error.details).toEqual({ ns: 'some-other-plugin' })
-    }
-    // The write never reached the seam.
-    expect(ctx.settings.describe().find(d => String(d.ns) === 'some-other-plugin')?.value).toEqual({})
+    const error = expectErr(await api.settings.update(request({
+      ns: 'some-other-plugin', patch: { secretPath: '/etc/shadow' },
+    })))
+    expect(error.code).toBe('settings-not-exposed')
+    expect(error.details).toEqual({ ns: 'some-other-plugin' })
   })
 
   it('serves product preference namespaces without invalidating the model catalog', async () => {
     const ctx = await harness()
-    ctx.settings.register(settingsNamespace('ui-onboarding'), z.object({ welcomeNoticeVersion: z.string() }))
+    ctx.settings.register(settingsNamespace('ui-onboarding'), z.object({ welcomeNoticeVersion: z.string() }), { expose: true })
     ctx.settings.register(settingsNamespace('ui-theme'), z.object({
       preference: z.union(['light', 'dark', 'system']).default('system'),
-    }))
+    }), { expose: true })
     const api = createApiProxy(ctx, DEFAULTS)
     expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
       .toEqual(['ui-onboarding', 'ui-theme'])
@@ -432,7 +427,7 @@ describe('settings domain', () => {
 
   it('serves the agent-preset namespace, so a browser preset picker can persist its choice', async () => {
     const ctx = await harness()
-    ctx.settings.register(settingsNamespace('agent-presets'), z.object({ default: z.string() }))
+    ctx.settings.register(settingsNamespace('agent-presets'), z.object({ default: z.string() }), { expose: true })
     const api = createApiProxy(ctx, DEFAULTS)
 
     expectOk(await api.settings.update(request({ ns: 'agent-presets', patch: { default: 'minimal' } })))
@@ -445,8 +440,12 @@ describe('settings domain', () => {
       .toEqual({ default: 'minimal' })
   })
 
-  it('refuses even a model-provider namespace once its directory entry is gone', async () => {
-    const ctx = await harness({ configurableProviders: false })
+  it('refuses even a model-provider namespace that did not opt in', async () => {
+    // The configurable-provider directory entry no longer grants exposure:
+    // only `expose: true` does. Registering a model-provider namespace without
+    // the flag leaves it unserved, so the Models page's sections must opt in
+    // too.
+    const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig)
     const api = createApiProxy(ctx, DEFAULTS)
     expect(expectOk(await api.settings.describe(request({}))).namespaces).toEqual([])
@@ -461,7 +460,7 @@ describe('settings domain', () => {
     // settings/updated, so another tab would never learn the field became
     // overridden.
     const ctx = await harness()
-    ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
+    ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' }, expose: true })
     const api = createApiProxy(ctx, DEFAULTS)
     const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
       await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://base' } }))
@@ -504,7 +503,7 @@ describe('settings domain', () => {
 
   it('maps a stale expectedRevision to settings-conflict carrying both revisions', async () => {
     const ctx = await harness()
-    ctx.settings.register(NS, AdapterConfig)
+    ctx.settings.register(NS, AdapterConfig, { expose: true })
     const api = createApiProxy(ctx, DEFAULTS)
     const opened = expectOk(await api.settings.describe(request({}))).namespaces[0]!.revision
     expect(expectOk(await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://first' }, expectedRevision: opened })))
@@ -518,7 +517,7 @@ describe('settings domain', () => {
 
   it('updates the user layer, answers with the new redacted view, and broadcasts the frame', async () => {
     const ctx = await harness()
-    ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
+    ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' }, expose: true })
     const api = createApiProxy(ctx, DEFAULTS)
     const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
       const view = expectOk(await api.settings.update(request({ ns: 'llm-deepseek', patch: { apiKey: 'sk-new', baseURL: 'https://next' } })))
@@ -532,7 +531,7 @@ describe('settings domain', () => {
 
   it('replace resets the user layer wholesale', async () => {
     const ctx = await harness({ settings: { doc: { 'llm-deepseek': { baseURL: 'https://user' } } } })
-    ctx.settings.register(NS, AdapterConfig)
+    ctx.settings.register(NS, AdapterConfig, { expose: true })
     const api = createApiProxy(ctx, DEFAULTS)
     const view = expectOk(await api.settings.replace(request({ ns: 'llm-deepseek', section: {} })))
     expect(view.value).toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY' })
@@ -544,7 +543,7 @@ describe('settings domain', () => {
     ['a schema-invalid patch', 'llm-deepseek', { baseURL: 42 }],
   ])('rejects %s as settings-rejected', async (_case, ns, patch) => {
     const ctx = await harness()
-    ctx.settings.register(NS, AdapterConfig)
+    ctx.settings.register(NS, AdapterConfig, { expose: true })
     const api = createApiProxy(ctx, DEFAULTS)
     const error = expectErr(await api.settings.update(request({ ns, patch })))
     expect(error.code).toBe('settings-rejected')
@@ -553,7 +552,7 @@ describe('settings domain', () => {
 
   it('answers an unregistered namespace exactly like an unexposed one', async () => {
     // Deliberately indistinguishable: separating "does not exist" from
-    // "exists but is not yours to configure" would let a caller enumerate the
+    // "exists but did not opt in to exposure" would let a caller enumerate the
     // registered namespaces one probe at a time.
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig)
@@ -568,7 +567,7 @@ describe('settings domain', () => {
 
   it('maps a read-only provider refusal onto the same rejection', async () => {
     const ctx = await harness({ settings: { readOnly: true } })
-    ctx.settings.register(NS, AdapterConfig)
+    ctx.settings.register(NS, AdapterConfig, { expose: true })
     const api = createApiProxy(ctx, DEFAULTS)
     const value = expectOk(await api.settings.describe(request({})))
     expect(value.writable).toBe(false)

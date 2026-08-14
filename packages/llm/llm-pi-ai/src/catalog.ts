@@ -183,6 +183,19 @@ export function catalogModels(provider: string): Map<string, Model<Api>> {
 export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>>
 
 /**
+ * 手写声明（无内置目录条目）的 OpenAI 系模型默认提供的推理等级，覆盖
+ * `reasoning_effort` 最常见的三个取值，wire 拼写与 OpenAI 一致。这是为了让
+ * 自定义 OpenAI 兼容端点无需逐条声明也能在对话里出现「思考等级」切换；
+ * 端点在 `reasoningEfforts` 或 `compat.supportsReasoningEffort` 上的显式声明
+ * 仍优先于此默认值。
+ */
+const DEFAULT_OPENAI_REASONING_EFFORTS: PiAiReasoningEfforts = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+}
+
+/**
  * Reasoning-dispatch compatibility switches, set on the route (its models'
  * default) or per model (winning over the route). Only the switches pi-ai's
  * reasoning dispatch reads are offered; the rest of pi-ai's compat surface
@@ -227,10 +240,13 @@ export interface PiAiModelProfile {
   input?: PiAiModality[]
   /**
    * Selectable reasoning efforts. Absent inherits the installed catalog
-   * entry's capability (a hand-declared model has none and does not reason);
-   * `false` declares a non-reasoning model, which is how a profile strips
-   * reasoning from a catalog model its gateway cannot serve; a non-empty dict
-   * declares the offered levels and their wire spellings.
+   * entry's capability; a hand-declared OpenAI-family model with no catalog
+   * entry defaults to the standard low/medium/high set so the conversation
+   * selector still offers a thinking-level switch, while any other
+   * hand-declared model does not reason. `false` declares a non-reasoning
+   * model, which is how a profile strips reasoning from a catalog model its
+   * gateway cannot serve; a non-empty dict declares the offered levels and
+   * their wire spellings.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
   /** Reasoning-dispatch switches for this model, winning over the route's. */
@@ -310,14 +326,20 @@ interface ModelReasoning {
  * @param provider - provider route key, for diagnostics.
  * @param entry - the configured model entry.
  * @param base - the installed catalog entry of the same id, when one exists.
+ * @param api - the model's resolved wire protocol.
  * @returns the reasoning fields the materialized model carries.
  */
 function resolveModelReasoning(
   provider: string,
   entry: PiAiModelProfile,
   base: Model<Api> | undefined,
+  api: string,
 ): ModelReasoning {
-  const efforts = entry.reasoningEfforts
+  const efforts = entry.reasoningEfforts === undefined
+    && base === undefined
+    && (api === 'openai-completions' || api === 'openai-responses')
+    ? DEFAULT_OPENAI_REASONING_EFFORTS
+    : entry.reasoningEfforts
   if (efforts === undefined) {
     // Reasoning rides the installed entry or is absent: a bare capability flag
     // would make pi-ai advertise effort levels with no `thinkingLevelMap` to
@@ -534,7 +556,7 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
       cost: base?.cost ?? NO_COST,
       contextWindow,
       maxTokens,
-      ...resolveModelReasoning(provider, entry, base),
+      ...resolveModelReasoning(provider, entry, base, api),
       ...resolveModelCompat(provider, entry, request.compat, base, api),
     }
   })

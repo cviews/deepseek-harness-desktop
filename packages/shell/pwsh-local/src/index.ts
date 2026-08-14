@@ -178,7 +178,7 @@ export class PwshLocalExecutor extends ShellExecutor {
         this.declaredPwshPath = declared
         this.resolvedPwshPath = resolvePwshPath(declared)
       },
-    })
+    }, true)
   }
 
   /**

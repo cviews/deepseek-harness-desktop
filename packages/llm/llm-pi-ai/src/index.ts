@@ -308,5 +308,5 @@ export function apply(ctx: Context, config: Config): void {
         ctx.logger.error(error)
       }
     },
-  })
+  }, true)
 }

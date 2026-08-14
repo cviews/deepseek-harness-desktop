@@ -167,6 +167,17 @@ describe('registration', () => {
     expect(serialized.refs[String(serialized.uid)]?.type).toBe('object')
   })
 
+  it('reflects the expose opt-in on the descriptor, defaulting to closed', async () => {
+    const { ctx } = await boot()
+    ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    ctx.settings.register(settingsNamespace('workspace'), NestedSchema, { expose: true })
+    const descriptors = ctx.settings.describe()
+    expect(descriptors.map(entry => [entry.ns, entry.exposed])).toEqual([
+      ['ui-theme', false],
+      ['workspace', true],
+    ])
+  })
+
   it('reads undefined for an unregistered namespace', async () => {
     const { ctx } = await boot()
     expect(ctx.settings.get(settingsNamespace('missing'))).toBeUndefined()

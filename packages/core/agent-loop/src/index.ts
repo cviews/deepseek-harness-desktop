@@ -342,7 +342,7 @@ export class AgentLoop extends Service implements AgentFactory {
       },
       // Nothing is derived from the cap: the getter above is the only reader.
       onChange: () => {},
-    })
+    }, true)
     validateConfiguredAgents(this.config.agents)
     this.ownership = new FactoryOwnership(ctx.fiber)
     this.runtime = { ctx }

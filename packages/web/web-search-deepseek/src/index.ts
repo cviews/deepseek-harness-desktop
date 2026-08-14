@@ -133,6 +133,6 @@ export function apply(ctx: Context, config: Config): void {
     // The registration carries no resolved value: the provider projects the
     // section per search, so a committed change needs no re-registration.
     onChange: () => {},
-  })
+  }, true)
   ctx.web.registerSearchProvider(new DeepSeekSearchProvider(() => resolveOptions(ctx, current())))
 }

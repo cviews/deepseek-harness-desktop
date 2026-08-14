@@ -272,5 +272,5 @@ export function apply(ctx: Context, config: Config): void {
       current = source
     },
     onChange: ensureRegistrationFacts,
-  })
+  }, true)
 }
